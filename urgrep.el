@@ -4,7 +4,7 @@
 
 ;; Author: Jim Porter
 ;; URL: https://github.com/jimporter/urgrep
-;; Version: 0.1-git
+;; Version: 0.1.1-git
 ;; Keywords: grep, search
 ;; Package-Requires: ((emacs "27.1") (compat "29.1.0.1") (project "0.3.0"))
 
@@ -202,6 +202,8 @@ one for each `:abbreviate' key found."
   `(if (local-variable-p ,variable)
        (with-temp-buffer ,@body)
      ,@body))
+
+(rx-define urgrep-regular-number (seq (any "1-9") (* digit)))
 
 
 ;; Urgrep tools
@@ -687,12 +689,12 @@ line number."
       (let* ((file-name-end (next-single-property-change
                              (point) 'urgrep-file-name))
              (file-name (buffer-substring-no-properties (point) file-name-end)))
-        (looking-at (concat
-                     (regexp-quote file-name)
-                     "\\(?:\\(?2:\0\\)\\|[:=-]\\)"
-                     "[0-9]+\\(?1:[=-]\\).*$")))
+        (looking-at (rx (literal file-name)
+                        (or (group-n 2 "\0") (any ":=-"))
+                        (+ digit) (group-n 1 (any "=-"))
+                        (* nonl) eol)))
     ;; Grouped result.
-    (looking-at "[0-9]+\\([=-]\\).*$")))
+    (looking-at (rx (+ digit) (group (any "=-")) (* nonl) eol))))
 
 (defvar urgrep-mode-font-lock-keywords
   `((,(rx bol "Urgrep started" (* nonl))
@@ -773,14 +775,14 @@ versions, it's half-open.  Use this to adjust the value as needed in
               ;; Require line numbers to start with a nonzero digit to allow
               ;; ":0" in filenames.
               (seq (group-n 1 (+? nonl) (not (any "\n" "/")))
-                   ":" (group-n 2 (any "1-9") (* digit))))
+                   ":" (group-n 2 urgrep-regular-number)))
           ":")
      1 2 (,#'urgrep--column-begin . ,#'urgrep--column-end)
      nil nil
      (3 '(face nil display ":")))
 
     ;; Grouped matches
-    (,(rx bol (group (any "1-9") (* digit)) ":")
+    (,(rx bol (group urgrep-regular-number) ":")
      ,#'urgrep--grouped-filename 1
      (,#'urgrep--column-begin . ,#'urgrep--column-end)))
   "Regexp used to match results.
