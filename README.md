@@ -101,8 +101,8 @@ recursive grep command. The following options are supported:
 | `-s`, `--case-sensitive`    | Search case-sensitively                     |
 | `-i`, `--ignore-case`       | Search case-insensitively                   |
 | `-S`, `--smart-case`        | Ignore case if pattern is all lower-case    |
-| `--group`                   | Group results by file                       |
-| `--no-group`                | Don't group results by file                 |
+| `--group` / `--no-group`    | Enable/disable grouping results by file     |
+| `--hidden` / `--no-hidden`  | Enable/disable searching hidden files       |
 | `-Cn`, `--context=n`        | Show *n* lines of context                   |
 | `-Bn`, `--before-context=n` | Show *n* lines of leading context           |
 | `-An`, `--after-context=n`  | Show *n* lines of trailing context          |
