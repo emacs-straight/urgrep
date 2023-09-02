@@ -1,6 +1,12 @@
 # Urgrep News
 
-## v0.2.0 (in progress)
+## v0.3.0 (in progress)
+
+No changes yet
+
+---
+
+## v0.2.0 (2023-08-31)
 
 ### New features
 - Add support for toggling whether to search in hidden files (`M-s h` in the
