@@ -224,8 +224,7 @@ properties defined in the `urgrep-tools' entry for TOOL."
                               (cons k (urgrep--get-prop-pcase
                                        k tool v "-arguments")))
                             props))))
-    (urgrep--flatten-arguments (cl-sublis props arguments)
-                               abbrev)))
+    (urgrep--flatten-arguments (cl-sublis props arguments) abbrev)))
 
 
 (rx-define urgrep-regular-number (seq (any "1-9") (* digit)))
@@ -453,6 +452,18 @@ See also `grep-process-setup'."
      (context-arguments . ,urgrep--context-arguments)))
   "An alist of known tools to try when running urgrep.")
 
+(defvar urgrep--cached-tool nil
+  "The cached urgrep tool to use.
+This value is connection-local.")
+
+(connection-local-set-profile-variables
+ 'urgrep-connection-local-profile
+ '((urgrep--cached-tool . nil)))
+
+(connection-local-set-profiles
+ '(:application tramp)
+ 'urgrep-connection-local-profile)
+
 (defcustom urgrep-preferred-tools nil
   "List of urgrep tools to search for.
 This can be nil to use the default list of tools in `urgrep-tools'
@@ -469,19 +480,10 @@ if there are multiple exeuctables)."
                      (append tool-choice
                              `((cons :tag "(tool . path)"
                                      ,tool-choice (string :tag "Path")))))))
-    :group 'urgrep)
-
-(defvar urgrep--cached-tool nil
-  "The cached urgrep tool to use.
-This value is connection-local.")
-
-(connection-local-set-profile-variables
- 'urgrep-connection-local-profile
- '((urgrep--cached-tool . nil)))
-
-(connection-local-set-profiles
- '(:application tramp)
- 'urgrep-connection-local-profile)
+  :set (lambda (symbol value)
+         (setq urgrep--cached-tool nil)
+         (set-default symbol value))
+  :group 'urgrep)
 
 (defsubst urgrep-connection-local-profile ()
   "Get a connection-local profile name for urgrep."
@@ -524,40 +526,39 @@ each tool, possibly modified with the executable path defined in
   "Get the preferred urgrep tool from `urgrep-tools'.
 This caches the default tool per-host in `urgrep--host-defaults'."
   (with-connection-local-variables
-   (or urgrep--cached-tool
-       (let ((vc-backend-name)
-             (saw-vc-tool-p nil))
-         (cl-loop
-          for tool iter-by (urgrep--iter-tools) do
-          (let ((tool-executable (urgrep--get-prop 'executable-name tool))
-                (tool-vc-backend (urgrep--get-prop 'vc-backend tool)))
-            (setq saw-vc-tool-p (or saw-vc-tool-p tool-vc-backend))
-            ;; Cache the VC backend name if we need it.
-            (when-let (((and tool-vc-backend (not vc-backend-name)))
-                       (proj (project-current)))
-              (setq vc-backend-name (vc-responsible-backend
-                                     (project-root proj))))
-            ;; If we find the executable (and it's for the right VC backend, if
-            ;; relevant), cache it and then return it.
-            (when (and (seq-every-p (lambda (i) (executable-find i t))
-                                    (ensure-list tool-executable))
-                       (or (not tool-vc-backend)
-                           (string= vc-backend-name tool-vc-backend)))
-              ;; So long as we didn't examine a VC-specific tool, we can cache
-              ;; this result for future calls, since the result will always be
-              ;; the same.  If we *did* see a VC-specific tool, this host will
-              ;; use different tools for different directories, so we can't
-              ;; cache anything.
-              (unless saw-vc-tool-p
-                (setq urgrep--cached-tool tool)
-                (when (file-remote-p default-directory)
-                  (connection-local-set-profile-variables
-                   (urgrep-connection-local-profile)
-                   `((urgrep--cached-tool . ,urgrep--cached-tool)))
-                  (connection-local-set-profiles
-                   (connection-local-criteria-for-default-directory)
-                   (urgrep-connection-local-profile))))
-              (cl-return tool))))))))
+   (let ((use-cache (equal urgrep-preferred-tools
+                           (default-value 'urgrep-preferred-tools)))
+         vc-backend-name)
+     (if (and urgrep--cached-tool use-cache)
+         urgrep--cached-tool
+       (catch 'found
+         (iter-do (tool (urgrep--iter-tools))
+           (let ((tool-executable (urgrep--get-prop 'executable-name tool))
+                 (tool-vc-backend (urgrep--get-prop 'vc-backend tool)))
+             ;; If we see a VC-specific tool, this host might use different
+             ;; tools for different directories, so we can't cache anything.
+             (setq use-cache (and use-cache (not tool-vc-backend)))
+             ;; Cache the VC backend name if we need it.
+             (when-let (((and tool-vc-backend (not vc-backend-name)))
+                        (proj (project-current)))
+               (setq vc-backend-name (vc-responsible-backend
+                                      (project-root proj))))
+             ;; If we find the executable (and it's for the right VC backend, if
+             ;; relevant), cache it if possible and then return it.
+             (when (and (seq-every-p (lambda (i) (executable-find i t))
+                                     (ensure-list tool-executable))
+                        (or (not tool-vc-backend)
+                            (string= vc-backend-name tool-vc-backend)))
+               (when use-cache
+                 (setq urgrep--cached-tool tool)
+                 (when (file-remote-p default-directory)
+                   (connection-local-set-profile-variables
+                    (urgrep-connection-local-profile)
+                    `((urgrep--cached-tool . ,urgrep--cached-tool)))
+                   (connection-local-set-profiles
+                    (connection-local-criteria-for-default-directory)
+                    (urgrep-connection-local-profile))))
+               (throw 'found tool)))))))))
 
 (defun urgrep-get-tool (&optional tool)
   "Get the urgrep tool for TOOL.
@@ -1185,12 +1186,15 @@ CONTEXT are as in `urgrep-command'.
 In addition, you can pass DEFAULT to specify the default search
 query.  If nil, guess the default based on the current region or
 point."
+  ;; Get the tool in the current buffer, in case `urgrep-preferred-tools' has a
+  ;; buffer-local value.
+  (setq tool (urgrep-get-tool tool))
   ;; Run this in a temporary buffer to make sure that none of the dynamic
   ;; variables below that we let-bind have buffer-local bindings.  If they did,
   ;; we wouldn't be able to retrieve the values for them that we set from inside
   ;; the minibuffer.
   (with-temp-buffer
-    (let* ((urgrep-current-tool (urgrep-get-tool tool))
+    (let* ((urgrep-current-tool tool)
            (urgrep-search-regexp regexp)
            (urgrep-case-fold case-fold)
            (urgrep-search-hidden-files hidden)
