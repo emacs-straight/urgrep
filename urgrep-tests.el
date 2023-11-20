@@ -192,11 +192,11 @@ joined to compare against COMMAND."
        `(,@common-args "--hidden" "--heading" "--break" "-i" "-F" "-e" "foo")))
     (ert-info ("File wildcard")
       (urgrep-tests/check-command
-       (urgrep-command "foo" :tool tool :files "*.el")
+       (urgrep-command "foo" :tool tool :file-wildcard "*.el")
        `(,@common-args "--include=*.el" "--heading" "--break" "-i" "-F" "-e"
                        "foo"))
       (urgrep-tests/check-command
-       (urgrep-command "foo" :tool tool :files '("*.c" "*.h"))
+       (urgrep-command "foo" :tool tool :file-wildcard '("*.c" "*.h"))
        `(,@common-args "--include=*.c" "--include=*.h" "--heading" "--break"
                        "-i" "-F" "-e" "foo")))
     (ert-info ("Directory")
@@ -206,7 +206,11 @@ joined to compare against COMMAND."
       (urgrep-tests/check-command
        (urgrep-command "foo" :tool tool :directory '("dir1" "dir2"))
        `(,@common-args "--heading" "--break" "-i" "-F" "-e" "foo" "dir1"
-                       "dir2")))
+                       "dir2"))
+      (urgrep-tests/check-command
+       (urgrep-command "foo" :tool tool :directory "~/dir")
+       `(,@common-args "--heading" "--break" "-i" "-F" "-e" "foo"
+                       ,(expand-file-name "~/dir"))))
     (ert-info ("Color")
       (urgrep-tests/check-command
        (urgrep-command "foo" :tool tool :color nil)
@@ -275,10 +279,10 @@ joined to compare against COMMAND."
        `(,@common-args "--hidden" "--heading" "-i" "-F" "--" "foo")))
     (ert-info ("File wildcard")
       (urgrep-tests/check-command
-       (urgrep-command "foo" :tool tool :files "*.el")
+       (urgrep-command "foo" :tool tool :file-wildcard "*.el")
        `(,@common-args "-g" "*.el" "--heading" "-i" "-F" "--" "foo"))
       (urgrep-tests/check-command
-       (urgrep-command "foo" :tool tool :files '("*.c" "*.h"))
+       (urgrep-command "foo" :tool tool :file-wildcard '("*.c" "*.h"))
        `(,@common-args "-g" "*.c" "-g" "*.h" "--heading" "-i" "-F" "--" "foo")))
     (ert-info ("Directory")
       (urgrep-tests/check-command
@@ -286,7 +290,11 @@ joined to compare against COMMAND."
        `(,@common-args "--heading" "-i" "-F" "--" "foo" "dir"))
       (urgrep-tests/check-command
        (urgrep-command "foo" :tool tool :directory '("dir1" "dir2"))
-       `(,@common-args "--heading" "-i" "-F" "--" "foo" "dir1" "dir2")))
+       `(,@common-args "--heading" "-i" "-F" "--" "foo" "dir1" "dir2"))
+      (urgrep-tests/check-command
+       (urgrep-command "foo" :tool tool :directory "~/dir")
+       `(,@common-args "--heading" "-i" "-F" "--" "foo"
+                       ,(expand-file-name "~/dir"))))
     (ert-info ("Color")
       (urgrep-tests/check-command
        (urgrep-command "foo" :tool tool :color nil)
@@ -348,10 +356,10 @@ joined to compare against COMMAND."
        `(,@common-args "--group" "-B2" "-A4" "-i" "-Q" "--" "foo")))
     (ert-info ("File wildcard")
       (urgrep-tests/check-command
-       (urgrep-command "foo" :tool tool :files "*.el")
+       (urgrep-command "foo" :tool tool :file-wildcard "*.el")
        `(,@common-args "-G" "^[^\\000]*\\.el$" "--group" "-i" "-Q" "--" "foo"))
       (urgrep-tests/check-command
-       (urgrep-command "foo" :tool tool :files '("*.c" "*.h"))
+       (urgrep-command "foo" :tool tool :file-wildcard '("*.c" "*.h"))
        `(,@common-args "-G" "^[^\\000]*\\.(c|h)$" "--group" "-i" "-Q" "--"
                        "foo")))
     (ert-info ("Directory")
@@ -360,7 +368,11 @@ joined to compare against COMMAND."
        `(,@common-args "--group" "-i" "-Q" "--" "foo" "dir"))
       (urgrep-tests/check-command
        (urgrep-command "foo" :tool tool :directory '("dir1" "dir2"))
-       `(,@common-args "--group" "-i" "-Q" "--" "foo" "dir1" "dir2")))
+       `(,@common-args "--group" "-i" "-Q" "--" "foo" "dir1" "dir2"))
+      (urgrep-tests/check-command
+       (urgrep-command "foo" :tool tool :directory "~/dir")
+       `(,@common-args "--group" "-i" "-Q" "--" "foo"
+                       ,(expand-file-name "~/dir"))))
     (ert-info ("Color")
       (urgrep-tests/check-command
        (urgrep-command "foo" :tool tool :color nil)
@@ -430,11 +442,11 @@ joined to compare against COMMAND."
        `(,@common-args "--group" "-i" "-Q" "--" "foo")))
     (ert-info ("File wildcard")
       (urgrep-tests/check-command
-       (urgrep-command "foo" :tool tool :files "*.el")
+       (urgrep-command "foo" :tool tool :file-wildcard "*.el")
        `(,@common-args ,@no-hidden-args "-G" "^[^\\000]*\\.el$" "--group" "-i"
                        "-Q" "--" "foo"))
       (urgrep-tests/check-command
-       (urgrep-command "foo" :tool tool :files '("*.c" "*.h"))
+       (urgrep-command "foo" :tool tool :file-wildcard '("*.c" "*.h"))
        `(,@common-args ,@no-hidden-args "-G" "^[^\\000]*\\.(c|h)$" "--group"
                        "-i" "-Q" "--" "foo")))
     (ert-info ("Directory")
@@ -444,7 +456,11 @@ joined to compare against COMMAND."
       (urgrep-tests/check-command
        (urgrep-command "foo" :tool tool :directory '("dir1" "dir2"))
        `(,@common-args ,@no-hidden-args "--group" "-i" "-Q" "--" "foo" "dir1"
-                       "dir2")))
+                       "dir2"))
+      (urgrep-tests/check-command
+       (urgrep-command "foo" :tool tool :directory "~/dir")
+       `(,@common-args ,@no-hidden-args "--group" "-i" "-Q" "--" "foo"
+                       ,(expand-file-name "~/dir"))))
     (ert-info ("Color")
       (urgrep-tests/check-command
        (urgrep-command "foo" :tool tool :color nil)
@@ -523,11 +539,11 @@ joined to compare against COMMAND."
        `(,@common-args ,@group-args "-i" "-F" "-e" "foo" "--")))
     (ert-info ("File wildcard")
       (urgrep-tests/check-command
-       (urgrep-command "foo" :tool tool :files "*.el")
+       (urgrep-command "foo" :tool tool :file-wildcard "*.el")
        `(,@common-args ,@group-args "-i" "-F" "-e" "foo" "--" ,@no-hidden-args
                        "*.el"))
       (urgrep-tests/check-command
-       (urgrep-command "foo" :tool tool :files '("*.c" "*.h"))
+       (urgrep-command "foo" :tool tool :file-wildcard '("*.c" "*.h"))
        `(,@common-args ,@group-args "-i" "-F" "-e" "foo" "--" ,@no-hidden-args
                        "*.c" "*.h")))
     (ert-info ("Directory")
@@ -538,14 +554,18 @@ joined to compare against COMMAND."
       (urgrep-tests/check-command
        (urgrep-command "foo" :tool tool :directory '("dir1" "dir2"))
        `(,@common-args ,@group-args "-i" "-F" "-e" "foo" "--" ,@no-hidden-args
-                       "dir1" "dir2")))
+                       "dir1" "dir2"))
+      (urgrep-tests/check-command
+       (urgrep-command "foo" :tool tool :directory "~/dir")
+       `(,@common-args ,@group-args "-i" "-F" "-e" "foo" "--" ,@no-hidden-args
+                       ,(expand-file-name "~/dir"))))
     (ert-info ("File wildcard + Directory")
       (urgrep-tests/check-command
-       (urgrep-command "foo" :tool tool :files "*.el" :directory "dir")
+       (urgrep-command "foo" :tool tool :file-wildcard "*.el" :directory "dir")
        `(,@common-args ,@group-args "-i" "-F" "-e" "foo" "--" ,@no-hidden-args
                        ":(glob)dir/**/*.el"))
       (urgrep-tests/check-command
-       (urgrep-command "foo" :tool tool :files '("*.c" "*.h")
+       (urgrep-command "foo" :tool tool :file-wildcard '("*.c" "*.h")
                        :directory '("dir1" "dir2"))
        `(,@common-args ,@group-args "-i" "-F" "-e" "foo" "--" ,@no-hidden-args
                        ":(glob)dir1/**/*.c" ":(glob)dir2/**/*.c"
@@ -615,20 +635,25 @@ joined to compare against COMMAND."
                  (format template "."
                          (concat "-i?name " (funcall escape "*.el") " ")
                          "--color=always -i -F" "foo")
-                 (urgrep-command "foo" :tool tool :files "*.el")))
+                 (urgrep-command "foo" :tool tool :file-wildcard "*.el")))
         (should (string-match
                  (format template "."
                          (concat "-i?name " (funcall escape "*.c") " -o "
                                  "-i?name " (funcall escape "*.h") " ")
                          "--color=always -i -F" "foo")
-                 (urgrep-command "foo" :tool tool :files '("*.c" "*.h"))))))
+                 (urgrep-command "foo" :tool tool
+                                 :file-wildcard '("*.c" "*.h"))))))
     (ert-info ("Directory")
       (should (string-match
                (format template "dir" "" "--color=always -i -F" "foo")
                (urgrep-command "foo" :tool tool :directory "dir")))
       (should (string-match
                (format template "dir1 dir2" "" "--color=always -i -F" "foo")
-               (urgrep-command "foo" :tool tool :directory '("dir1" "dir2")))))
+               (urgrep-command "foo" :tool tool :directory '("dir1" "dir2"))))
+      (should (string-match
+               (format template (expand-file-name "~/dir") ""
+                       "--color=always -i -F" "foo")
+               (urgrep-command "foo" :tool tool :directory "~/dir"))))
     (ert-info ("Color")
       (should (string-match (format template "." "" "+-i -F" "foo")
                             (urgrep-command "foo" :tool tool :color nil))))))

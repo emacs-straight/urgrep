@@ -187,6 +187,25 @@ for MS shells."
       argument
     (shell-quote-argument argument)))
 
+(defun urgrep--shell-join (arguments)
+  "Join ARGUMENTS by spaces, quoting each argument as needed for the shell."
+  (mapconcat #'urgrep--maybe-shell-quote-argument arguments " "))
+
+(defun urgrep--safe-file-name (file)
+  "Get a safe form of FILE ready to pass to an external process.
+This expands tildes and removes any remote host identifiers or quoting."
+  (when-let ((remote (file-remote-p file)))
+    (unless (equal remote (file-remote-p default-directory))
+      (error "remote file doesn't match host for `default-directory'"))
+    (setq file (file-local-name file)))
+  (setq file (file-name-unquote file))
+  (if (not (string-prefix-p "~" file))
+      file
+    (setq file (expand-file-name file))
+    (if (file-in-directory-p file default-directory)
+        (file-relative-name file)
+      (file-local-name file))))
+
 (defun urgrep--flatten-arguments (tree &optional abbrs)
   "Flatten a TREE of arguments into a single shell-quoted string.
 This also finds sublists with the `:abbreviate' key and adds the
@@ -201,8 +220,7 @@ one for each `:abbreviate' key found."
           (while (consp elem)
             (when (eq (car elem) :abbreviate)
               (push (propertize
-                     (mapconcat #'urgrep--maybe-shell-quote-argument
-                                (flatten-list (cdr elem)) " ")
+                     (urgrep--shell-join (flatten-list (cdr elem)))
                      'abbreviated-command (or (pop abbrs) t))
                     elems)
               (throw 'abbreviated t))
@@ -226,7 +244,6 @@ properties defined in the `urgrep-tools' entry for TOOL."
                             props))))
     (urgrep--flatten-arguments (cl-sublis props arguments) abbrev)))
 
-
 (rx-define urgrep-regular-number (seq (any "1-9") (* digit)))
 
 
@@ -239,26 +256,23 @@ properties defined in the `urgrep-tools' entry for TOOL."
     ((or `(,c . ,c) (and c (pred numberp))) (list (format "-C%d" c)))
     (`(,b . ,a) (list (format "-B%d" b) (format "-A%d" a)))))
 
-(cl-defun urgrep--rgrep-command (query &key tool regexp case-fold hidden files
-                                       directory context color
+(cl-defun urgrep--rgrep-command (query &key tool regexp case-fold hidden
+                                       file-wildcard directory context color
                                        &allow-other-keys)
   "Get the command to run for QUERY when using rgrep.
-Optional keys TOOL, REGEXP, CASE-FOLD, HIDDEN, FILES, DIRECTORY,
-CONTEXT, and COLOR are as in `urgrep-command'."
+Optional keys TOOL, REGEXP, CASE-FOLD, HIDDEN, FILE-WILDCARD,
+DIRECTORY, CONTEXT, and COLOR are as in `urgrep-command'."
   (grep-compute-defaults)
   ;; Locally add options to `grep-find-template' that grep.el isn't aware of.
   (let ((grep-find-template grep-find-template)
         (grep-highlight-matches (if color 'always nil))
-        (files (if files (mapconcat #'identity files " ") "*"))
-        (directory (when directory
-                     (mapconcat #'urgrep--maybe-shell-quote-argument
-                                directory " "))))
+        (file-wildcard (if file-wildcard (string-join file-wildcard " ") "*"))
+        (directory (when directory (urgrep--shell-join directory))))
     (pcase-dolist (`(,k . ,v) `((regexp    . ,regexp)
                                 (case-fold . ,case-fold)
                                 (context   . ,context)))
       (when-let ((args (urgrep--get-prop-pcase k tool v "-arguments"))
-                 (args (mapconcat #'urgrep--maybe-shell-quote-argument args
-                                  " "))
+                 (args (urgrep--shell-join args))
                  ((string-match "<C>" grep-find-template)))
         (setq grep-find-template
               (replace-match (concat "<C> " args) t t grep-find-template))))
@@ -272,7 +286,7 @@ CONTEXT, and COLOR are as in `urgrep-command'."
               grep-find-ignored-files
               (cons ".*" (seq-filter (lambda (s) (not (string-prefix-p "." s)))
                                      grep-find-ignored-files))))
-      (let ((command (rgrep-default-command query files directory)))
+      (let ((command (rgrep-default-command query file-wildcard directory)))
         (save-match-data
           ;; Hide excessive part of rgrep command.
           (when (string-match
@@ -283,19 +297,20 @@ CONTEXT, and COLOR are as in `urgrep-command'."
         command))))
 
 (cl-defun urgrep--git-grep-command (query &key tool regexp case-fold hidden
-                                          files directory group context color)
+                                          file-wildcard directory group context
+                                          color)
   "Get the command to run for QUERY when using git grep.
-Optional keys TOOL, REGEXP, CASE-FOLD, HIDDEN, FILES, DIRECTORY,
-CONTEXT, and COLOR are as in `urgrep-command'."
+Optional keys TOOL, REGEXP, CASE-FOLD, HIDDEN, FILE-WILDCARD,
+DIRECTORY, CONTEXT, and COLOR are as in `urgrep-command'."
   (let ((pathspecs
-         (if (and files directory)
+         (if (and file-wildcard directory)
              (mapcan
               (lambda (file)
                 (mapcar (lambda (dir)
                           (concat ":(glob)" (file-name-concat dir "**" file)))
                         directory))
-              files)
-           (or files directory))))
+              file-wildcard)
+           (or file-wildcard directory))))
     (urgrep--interpolate-arguments query tool
                                    `((regexp      . ,regexp)
                                      (case-fold   . ,case-fold)
@@ -321,7 +336,7 @@ See also `grep-process-setup'."
      (executable-name . "ugrep")
      (regexp-syntax bre ere pcre)
      (arguments executable (:abbreviate color "-rn" "--ignore-files")
-                hidden-file file-wildcards group context case-fold regexp "-e"
+                hidden-file file-wildcard group context case-fold regexp "-e"
                 query directory)
      (regexp-arguments ('bre  '("-G"))
                        ('ere  '("-E"))
@@ -329,7 +344,7 @@ See also `grep-process-setup'."
                        (_     '("-F")))
      (case-fold-arguments ((pred identity) '("-i")))
      (hidden-file-arguments ((pred identity) '("--hidden")))
-     (file-wildcards-arguments
+     (file-wildcard-arguments
       ((and x (pred identity))
        (mapcar (lambda (i) (concat "--include=" i)) x)))
      (directory-arguments (x x))
@@ -342,12 +357,12 @@ See also `grep-process-setup'."
     (ripgrep
      (executable-name . "rg")
      (regexp-syntax pcre)
-     (arguments executable (:abbreviate color) hidden-file file-wildcards group
+     (arguments executable (:abbreviate color) hidden-file file-wildcard group
                 context case-fold regexp "--" query directory)
      (regexp-arguments ('nil '("-F")))
      (case-fold-arguments ((pred identity) '("-i")))
      (hidden-file-arguments ((pred identity) '("--hidden")))
-     (file-wildcards-arguments
+     (file-wildcard-arguments
       ((and x (pred identity))
        (flatten-list (mapcar (lambda (i) (cons "-g" i)) x))))
      (directory-arguments (x x))
@@ -363,13 +378,13 @@ See also `grep-process-setup'."
     (ag
      (executable-name . "ag")
      (regexp-syntax pcre)
-     (arguments executable (:abbreviate color) hidden-file file-wildcards group
+     (arguments executable (:abbreviate color) hidden-file file-wildcard group
                 context case-fold regexp "--" query directory)
      (regexp-arguments ('nil '("-Q")))
      (case-fold-arguments ('nil '("-s"))
                           (_    '("-i")))
      (hidden-file-arguments ((pred identity) '("--hidden")))
-     (file-wildcards-arguments
+     (file-wildcard-arguments
       ((and x (pred identity))
        (list "-G" (urgrep--wildcards-to-regexp x 'pcre))))
      (directory-arguments (x x))
@@ -382,13 +397,13 @@ See also `grep-process-setup'."
     (ack
      (executable-name . "ack")
      (regexp-syntax pcre)
-     (arguments executable (:abbreviate color) hidden-file file-wildcards group
+     (arguments executable (:abbreviate color) hidden-file file-wildcard group
                 context case-fold regexp "--" query directory)
      (regexp-arguments ('nil '("-Q")))
      (case-fold-arguments ((pred identity) '("-i")))
      (hidden-file-arguments ('nil '("--ignore-dir=match:/^\\./"
                                     "--ignore-file=match:/^\\./")))
-     (file-wildcards-arguments
+     (file-wildcard-arguments
       ((and x (pred identity))
        (list "-G" (urgrep--wildcards-to-regexp x 'pcre))))
      (directory-arguments (x x))
@@ -596,7 +611,8 @@ it up in `urgrep-tools'.  Otherwise, return TOOL as-is."
 
 ;;;###autoload
 (cl-defun urgrep-command (query &key tool regexp (case-fold 'inherit) hidden
-                                files directory (group t) (context 0) (color t))
+                                file-wildcard directory (group t) (context 0)
+                                (color t))
   "Return a command to use to search for QUERY.
 Several keyword arguments can be supplied to adjust the resulting
 command:
@@ -615,8 +631,11 @@ possible values are as `urgrep-case-fold', defaulting to
 
 HIDDEN: non-nil to search in hidden files; defaults to nil.
 
-FILES: a wildcard (or list of wildcards) to limit the files
-searched.
+FILE-WILDCARD: a wildcard (or list of wildcards) to limit the
+files searched.
+
+DIRECTORY: the directory (or list of directories) to search in;
+if nil (the default), search in `default-directory'.
 
 GROUP: show results grouped by filename (t, the default), or if
 nil, prefix the filename on each result line.
@@ -629,8 +648,8 @@ respectively).
 COLOR: non-nil (the default) if the output should use color."
   (with-connection-local-variables
    (let* ((regexp-syntax (if (eq regexp t) urgrep-regexp-syntax regexp))
-          (files (ensure-list files))
-          (directory (ensure-list directory))
+          (file-wildcard (ensure-list file-wildcard))
+          (directory (mapcar #'urgrep--safe-file-name (ensure-list directory)))
           (tool (or (urgrep-get-tool tool)
                     (error "unknown tool %s" tool)))
           (tool-re-syntax (urgrep--get-best-syntax regexp-syntax tool))
@@ -644,18 +663,18 @@ COLOR: non-nil (the default) if the output should use color."
      ;; Build the command arguments.
      (if cmd-fun
          (funcall cmd-fun query :tool tool :regexp tool-re-syntax
-                  :case-fold case-fold :hidden hidden :files files
-                  :directory directory :group group :context context
-                  :color color)
+                  :case-fold case-fold :hidden hidden
+                  :file-wildcard file-wildcard :directory directory
+                  :group group :context context :color color)
        (urgrep--interpolate-arguments query tool
-                                      `((regexp         . ,tool-re-syntax)
-                                        (case-fold      . ,case-fold)
-                                        (hidden-file    . ,hidden)
-                                        (file-wildcards . ,files)
-                                        (directory      . ,directory)
-                                        (group          . ,group)
-                                        (context        . ,context)
-                                        (color          . ,color)))))))
+                                      `((regexp        . ,tool-re-syntax)
+                                        (case-fold     . ,case-fold)
+                                        (hidden-file   . ,hidden)
+                                        (file-wildcard . ,file-wildcard)
+                                        (directory     . ,directory)
+                                        (group         . ,group)
+                                        (context       . ,context)
+                                        (color         . ,color)))))))
 
 
 ;; urgrep-mode
