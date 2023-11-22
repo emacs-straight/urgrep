@@ -2,12 +2,18 @@
 
 ## v0.3.0 (in progress)
 
+### New features
+- Add optional `urgrep-xref` feature, which lets Xref use Urgrep to create the
+  command for searching in files/directories
+
 ### Bug fixes
 - Respect buffer-local values of `urgrep-preferred-tools`
 
 ### Breaking changes
 - `:files` keyword argument in `urgrep-command` and friends is now
   `:file-wildcard`
+- `:directory` keyword argument in `urgrep-commnd` and friends is now `:root`,
+  and can accept file and/or directory names
 
 ---
 
