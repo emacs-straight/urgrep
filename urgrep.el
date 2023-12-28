@@ -4,7 +4,7 @@
 
 ;; Author: Jim Porter
 ;; URL: https://github.com/jimporter/urgrep
-;; Version: 0.3.1-git
+;; Version: 0.4.0-git
 ;; Keywords: grep, search
 ;; Package-Requires: ((emacs "27.1") (compat "29.1.0.1") (project "0.3.0"))
 
@@ -36,6 +36,7 @@
 (require 'compile)
 (require 'generator)
 (require 'grep)
+(require 'outline)
 (require 'project)
 (require 'shell)                        ; For `shell--parse-pcomplete-arguments'
 (require 'text-property-search)
@@ -702,6 +703,14 @@ COLOR: non-nil (the default) if the output should use color."
 
 ;; urgrep-mode
 
+(defvar outline-search-function)
+(defvar outline-level)
+(defvar outline-minor-mode-use-buttons)
+
+(declare-function outline-cycle "outline" (&optional event))
+(declare-function outline-search-text-property "outline"
+                  (property &optional value bound move backward looking-at))
+
 (defvar urgrep-file-wildcards nil
   "Zero or more wildcards to limit the files searched.")
 (defvar urgrep-num-matches-found 0
@@ -710,6 +719,11 @@ COLOR: non-nil (the default) if the output should use color."
   "The most recent search query run in this buffer.")
 (defvar-local urgrep-current-tool nil
   "The most recent search tool used in this buffer.")
+
+(defvar-local urgrep--filter-start nil
+  "The in-buffer position to start `urgrep-filter'.")
+(defvar-local urgrep--filter-last-file nil
+  "The previously-found file name in `urgrep-filter'.")
 
 ;; Set the first column to 0 because that's how we currently count.
 ;; XXX: It might be worth changing this to 1 if we allow reading the column
@@ -949,47 +963,78 @@ See `compilation-error-regexp-alist' for format details.")
 (defun urgrep-filter ()
   "Handle match highlighting escape sequences inserted by the process.
 This function is called from `compilation-filter-hook'."
-  (rx-let ((ansi-sgr (&rest rest) (seq "\033[" rest "m")))
-    (save-excursion
-      (forward-line 0)
-      (let ((end (point)) beg)
-        (goto-char compilation-filter-start)
-        (forward-line 0)
-        (setq beg (point))
-        ;; Only operate on whole lines so we don't get caught with part of an
-        ;; escape sequence in one chunk and the rest in another.
-        (when (< (point) end)
-          (setq end (copy-marker end))
-          ;; Highlight matches and delete ANSI escapes.
-          (while (re-search-forward
-                  (rx (or ;; Find the escapes together...
-                       (ansi-sgr (or "01" "1") ";31")
-                       ;; ... or apart.
-                       (seq (ansi-sgr (or "01" "1"))
-                            (ansi-sgr "31")))
-                      (group (*? nonl) (? "\n"))
-                      (ansi-sgr (? "0")))
-                  end 1)
-            (replace-match
-             (propertize (match-string 1) 'face nil
-                         'font-lock-face 'urgrep-match)
-             t t)
-            (cl-incf urgrep-num-matches-found))
-          ;; Highlight matching filenames and delete ANSI escapes.
-          (goto-char beg)
-          (while (re-search-forward
-                  (rx (ansi-sgr "35") (group (*? nonl)) (ansi-sgr (? "0")))
-                  end 1)
-            (replace-match
-             (propertize (match-string 1) 'face nil 'font-lock-face 'urgrep-hit
-                         'urgrep-file-name t)
-             t t))
-          ;; Delete all remaining escape sequences.
-          (goto-char beg)
-          (while (re-search-forward
-                  (rx "\033[" (* (any digit ";")) (any "m" "K"))
-                  end 1)
-            (replace-match "" t t)))))))
+  (unless urgrep--filter-start
+    (setq urgrep--filter-start compilation-filter-start))
+  (save-excursion
+    (rx-let ((ansi-cseq (&rest rest) (seq "\033[" rest))
+             (ansi-any-cseq (ansi-cseq (*? anything) (any "@-~")))
+             (ansi-sgr (&rest rest) (ansi-cseq rest "m")))
+      (let ((end (point)))
+        (goto-char urgrep--filter-start)
+        (catch 'done
+          (while (search-forward "\033" end 'limit)
+            (when (eq (char-after) ?\[)
+              (backward-char)
+              (unless (looking-at (rx ansi-any-cseq))
+                ;; This control sequence is incomplete.  Try again next time.
+                (throw 'done nil))
+              (cond
+               ;; Delete "erase in line" ANSI CSI sequence.
+               ((re-search-forward (rx point (ansi-cseq (* digit) "K")) end t)
+                (replace-match "" t t))
+               ;; Highlight matching filenames and delete ANSI SGR escapes.
+               ((re-search-forward (rx bol point (ansi-sgr "35")
+                                       (group (*? anything))
+                                       (ansi-sgr (? "0")))
+                                   end t)
+                (let* ((file-name (match-string 1))
+                       (same-file (equal file-name urgrep--filter-last-file)))
+                  (replace-match
+                   (propertize file-name 'face nil
+                               'font-lock-face 'urgrep-hit
+                               'urgrep-file-name (if same-file 'repeat 'first))
+                   t t)
+                  (setq urgrep--filter-last-file file-name)))
+               ;; Highlight matches and delete ANSI SGR escapes.
+               ((re-search-forward (rx point
+                                       (or ;; Find the escapes together...
+                                        (ansi-sgr (or "01" "1") ";31")
+                                        ;; ... or apart.
+                                        (seq (ansi-sgr (or "01" "1"))
+                                             (ansi-sgr "31")))
+                                       ;; Matches always stop by end of line.
+                                       ;; (Multi-line matches get restarted
+                                       ;; after the line number is printed.)
+                                       (group (*? nonl) (? "\n"))
+                                       (ansi-sgr (? "0")))
+                                   end t)
+                (replace-match
+                 (propertize (match-string 1) 'face nil
+                             'font-lock-face 'urgrep-match)
+                 t t)
+                (cl-incf urgrep-num-matches-found))
+               ;; Delete no-op ANSI SGR escapes.
+               ((re-search-forward (rx point (ansi-sgr (? "0"))
+                                       (group (*? anything))
+                                       (ansi-sgr (? "0")))
+                                   end t)
+                (replace-match (match-string 1) t t))
+               ;; If nothing matched, try again next time.
+               (t (throw 'done nil))))))
+        (setq urgrep--filter-start (point))))))
+
+(defun urgrep-outline-search (&optional bound move backward looking-at)
+  "Search for outline headings.  See `outline-search-function'."
+  (outline-search-text-property 'urgrep-file-name 'first bound move backward
+                                looking-at))
+
+(defun urgrep-goto-match-or-outline-cycle (&optional event)
+  "Visit the source for the match at point or cycle outline visibility.
+If non-nil, EVENT should be a mouse event."
+  (interactive (list last-input-event))
+  (condition-case nil
+      (compile-goto-error event)
+    (error (outline-cycle event))))
 
 (define-compilation-mode urgrep-mode "Urgrep"
   "A compilation mode for various grep-like tools."
@@ -999,7 +1044,18 @@ This function is called from `compilation-filter-hook'."
               compilation-error-regexp-alist urgrep-regexp-alist
               compilation-mode-line-errors urgrep-mode-line-matches
               compilation-disable-input t
-              compilation-error-screen-columns nil)
+              compilation-error-screen-columns nil
+              outline-search-function #'urgrep-outline-search
+              outline-level (lambda () 1)
+              outline-minor-mode-use-buttons 'in-margins
+              urgrep--filter-start nil
+              urgrep--filter-last-file nil)
+  ;; Locally override the button map for `outline-minor-mode'.
+  (when (boundp 'outline-overlay-button-map)
+    (setq-local outline-overlay-button-map
+                (define-keymap
+                  :parent outline-overlay-button-map
+                  "RET" #'urgrep-goto-match-or-outline-cycle)))
   (add-hook 'compilation-filter-hook #'urgrep-filter nil t))
 
 (defun urgrep--hide-abbreviations (command)
