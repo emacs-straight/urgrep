@@ -1,0 +1,4 @@
+*.elc
+/.deps
+/urgrep-autoloads.el
+/urgrep-pkg.el
