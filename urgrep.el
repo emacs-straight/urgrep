@@ -711,6 +711,7 @@ COLOR: non-nil (the default) if the output should use color."
 
 ;; urgrep-mode
 
+(defvar ansi-color-for-compilation-mode)
 (defvar outline-search-function)
 (defvar outline-level)
 (defvar outline-minor-mode-use-buttons)
@@ -1021,7 +1022,8 @@ See `compilation-error-regexp-alist' for format details.")
   (when-let ((tool-setup (urgrep--get-prop 'process-setup urgrep-current-tool)))
     (funcall tool-setup))
   (setq-local urgrep-num-matches-found 0
-              compilation-exit-message-function #'urgrep-exit-message)
+              compilation-exit-message-function #'urgrep-exit-message
+              ansi-color-for-compilation-mode nil)
   (run-hooks 'urgrep-setup-hook))
 
 (defun urgrep-exit-message (status code msg)
