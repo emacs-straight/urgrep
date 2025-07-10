@@ -4,9 +4,9 @@
 
 ;; Author: Jim Porter
 ;; URL: https://github.com/jimporter/urgrep
-;; Version: 0.5.3-git
+;; Version: 0.6.0-git
 ;; Keywords: grep, search
-;; Package-Requires: ((emacs "27.1") (compat "29.1.0.1") (project "0.3.0"))
+;; Package-Requires: ((emacs "28.1") (compat "29.1.0.1") (project "0.3.0"))
 
 ;; This file is NOT part of GNU Emacs.
 
@@ -956,16 +956,6 @@ file name and line number."
      (0 'urgrep-context t)
      (2 `(face nil display ,(match-string 1)) nil t))))
 
-(defvar urgrep--column-end-adjustment
-  (if (< emacs-major-version 28) 0 1)
-  "Handle core Emacs changes to the column range for `compile-mode' matches.
-In Emacs 28+, the column range for matches is closed, but in
-previous versions, it's half-open.  Use this to adjust the value
-as needed in `urgrep--column-end'.
-
-For more details on the change, see
-<https://debbugs.gnu.org/cgi/bugreport.cgi?bug=49624>.")
-
 (defun urgrep--column-begin ()
   "Look forwards for the match highlight to compute the beginning column."
   (let* ((beg (match-end 0))
@@ -982,39 +972,40 @@ For more details on the change, see
          (mend (and mbeg (next-single-property-change mbeg 'font-lock-face nil
                                                       end))))
     (when mend
-      (- mend beg urgrep--column-end-adjustment))))
+      ;; In Emacs 28+, the column range for matches in compile.el is closed, but
+      ;; our calculation is half-open.  So subtract 1 from the result to make it
+      ;; closed.  For more details on the change, see
+      ;; <https://debbugs.gnu.org/cgi/bugreport.cgi?bug=49624>.
+      (- mend beg 1))))
 
 (defun urgrep--grouped-filename ()
   "Look backwards for the filename when a match is found in grouped output."
   (save-excursion
-    (if-let* ((match (text-property-search-backward 'urgrep-file-name)))
-        (buffer-substring-no-properties (prop-match-beginning match)
-                                        (prop-match-end match))
-      ;; Emacs 27 and lower will break if we return nil from this function.
-      (when (< emacs-major-version 28) "*unknown*"))))
+    (when-let* (;; Make sure the line doesn't start with a filename...
+                ((not (get-text-property (match-beginning 0)
+                                         'urgrep-file-name)))
+                ;; ... and that we've seen a file name previously.
+                (match (text-property-search-backward 'urgrep-file-name)))
+      (buffer-substring-no-properties (prop-match-beginning match)
+                                      (prop-match-end match)))))
 
 (defconst urgrep-regexp-alist
-  ;; XXX: Try to rely on ANSI escapes as with the match highlight?
-  `(;; Ungrouped matches
-    (,(rx bol
-          (or ;; Parse using a null terminator after the filename when possible.
-              (seq (group-n 1 (+ (not (any "\0" "\n"))))
-                   (group-n 3 "\0") (group-n 2 (+ digit)))
-              ;; Fallback if we can't use null terminators after the filename.
-              ;; Require line numbers to start with a nonzero digit to allow
-              ;; ":0" in filenames.
-              (seq (group-n 1 (+? nonl) (not (any "\n" "/")))
-                   ":" (group-n 2 urgrep-regular-number)))
-          ":")
-     1 2 (,#'urgrep--column-begin . ,#'urgrep--column-end)
-     nil nil
-     (3 '(face nil display ":")))
-
-    ;; Grouped matches
+  `(;; Grouped matches
     (,(rx bol (group urgrep-regular-number) ":")
      ,#'urgrep--grouped-filename 1
-     (,#'urgrep--column-begin . ,#'urgrep--column-end)))
-  "Regexp used to match results.
+     (,#'urgrep--column-begin . ,#'urgrep--column-end))
+    ;; Ungrouped matches with null terminator
+    (,(rx bol (group (+ (not (any "\0" "\n" "\033"))))
+          (group "\0") (group (+ digit)) ":")
+     1 3 (,#'urgrep--column-begin . ,#'urgrep--column-end)
+     nil nil (2 '(face nil display ":")))
+    ;; Ungrouped matches without null terminator
+    (,(rx bol (group (*? (not (any "\n" "\033"))) (not (any "/" "\n" "\033")))
+          ;; Require line numbers to start with a nonzero digit to allow ":0" in
+          ;; filenames.
+          ":" (group urgrep-regular-number) ":")
+     1 2 (,#'urgrep--column-begin . ,#'urgrep--column-end)))
+  "Regexps used to match results.
 See `compilation-error-regexp-alist' for format details.")
 
 (defun urgrep-process-setup ()
