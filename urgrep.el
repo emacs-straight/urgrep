@@ -1,12 +1,12 @@
 ;;; urgrep.el --- Universal recursive grep -*- lexical-binding: t -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; Author: Jim Porter
-;; URL: https://github.com/jimporter/urgrep
-;; Version: 0.6.0-git
+;; URL: https://sr.ht/~jimporter/urgrep/
+;; Version: 0.6.1-git
 ;; Keywords: grep, search
-;; Package-Requires: ((emacs "28.1") (compat "29.1.0.1") (project "0.3.0"))
+;; Package-Requires: ((emacs "28.1") (compat "29.1.0.1"))
 
 ;; This file is NOT part of GNU Emacs.
 

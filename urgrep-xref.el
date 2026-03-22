@@ -1,10 +1,10 @@
 ;;; urgrep-xref.el --- Universal recursive grep -*- lexical-binding: t -*-
 
-;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
 ;; Author: Jim Porter
-;; URL: https://github.com/jimporter/urgrep
-;; Version: 0.5.3-git
+;; URL: https://sr.ht/~jimporter/urgrep/
+;; Version: 0.6.1-git
 ;; Keywords: grep, search
 
 ;; This file is NOT part of GNU Emacs.
